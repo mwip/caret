@@ -63,6 +63,10 @@
 #' corresponding to the classes.
 #' @param mode a single character string either "sens_spec", "prec_recall", or
 #' "everything"
+#' @param marginalProportions a numeric vector holding the marginal proportion
+#' of each class in the base population for wheighing the confusionMatrix.
+#' Useful for estimating the accuracy using a stratified sample. See Card 1982
+#' and Stehman & Foody 2019. Ignored if \code{NULL} (the default).
 #' @param \dots options to be passed to \code{table}. NOTE: do not include
 #' \code{dnn} here
 #' @return a list with elements \item{table}{the results of \code{table} on
@@ -95,6 +99,14 @@
 #' Velez, D.R., et. al. (2008) ``A balanced accuracy function for epistasis
 #' modeling in imbalanced datasets using multifactor dimensionality
 #' reduction.,'' \emph{Genetic Epidemiology}, vol 4, 306.
+#'
+#' Card, D.H. (1982) ``Using Known Map Category Marginal Frequencies to Improve
+#' to Improve Estimates of Thematic Map Accuracy,'' \emph{ Photogrammetric
+#' Engineering and Remote Sensing}, vol 48, 431-439.
+#'
+#' Stehman, S.V., Foody, G.M. (2019) ``Key issues in rigorous accuracy
+#' assessment of land cover products,'' \emph{Remote Sensing of Environment},
+#' vol 213, 111199.
 #' @keywords utilities
 #' @examples
 #'
@@ -142,6 +154,7 @@ confusionMatrix.default <- function(data, reference,
                                     dnn = c("Prediction", "Reference"),
                                     prevalence = NULL,
                                     mode = "sens_spec",
+                                    marginalProportions = NULL,
                                     ...) {
   if(!(mode %in% c("sens_spec", "prec_recall", "everything")))
     stop("`mode` should be either 'sens_spec', 'prec_recall', or 'everything'")
@@ -155,6 +168,12 @@ confusionMatrix.default <- function(data, reference,
 
   if(!any(levels(data) %in% levels(reference))){
     stop("The data must contain some levels that overlap the reference.")
+  }
+
+  if(!is.null(marginalProportions)){
+    if(length(levels(reference)) != length(marginalProportions)){
+      stop("The marginal proportions must have the same length as the levels of the reference.")
+    }
   }
 
   if(!all(levels(data) %in% levels(reference))){
@@ -181,14 +200,18 @@ confusionMatrix.default <- function(data, reference,
 
   classTable <- table(data, reference, dnn = dnn, ...)
 
-  getFromNamespace("confusionMatrix.table", "caret")(classTable, positive, prevalence = prevalence, mode = mode)
+  getFromNamespace("confusionMatrix.table", "caret")(classTable, positive,
+                                                     prevalence = prevalence,
+                                                     mode = mode,
+                                                     marginalProportions = marginalProportions)
 }
 
 #' @rdname confusionMatrix
 #' @importFrom stats binom.test mcnemar.test
 #' @export
 confusionMatrix.table <- function(data, positive = NULL,
-                                  prevalence = NULL, mode = "sens_spec", ...){
+                                  prevalence = NULL, mode = "sens_spec",
+                                  marginalProportions = NULL, ...){
   requireNamespaceQuietStop("e1071")
   if(!(mode %in% c("sens_spec", "prec_recall", "everything")))
     stop("`mode` should be either 'sens_spec', 'prec_recall', or 'everything'")
@@ -233,6 +256,10 @@ confusionMatrix.table <- function(data, positive = NULL,
     else
       res <- unlist(res[c("null.value", "p.value")])
     res
+  }
+
+  if (!is.null(marginalProportions)){
+    return(estimateMarginalProportion(data, marginalProportions))
   }
 
   overall <- c(unlist(e1071::classAgreement(data))[c("diag", "kappa")],
